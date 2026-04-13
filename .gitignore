@@ -1,0 +1,59 @@
+﻿# Python cache / bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+
+# Build artifacts (PyInstaller)
+build/
+dist/
+release/
+.pyi_build/
+*.spec.bak
+
+# Packaging metadata
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Logs / temp files
+*.log
+*.tmp
+*.temp
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE / editor
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Local app runtime data (safety)
+# Note: actual app data is under %AppData%, not repo.
+backups/
+logs/
+temp/
+
+# Optional local notes
+开发文档.md

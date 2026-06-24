@@ -69,7 +69,8 @@ class MainWindowDeleteAllTests(unittest.TestCase):
 
         self.assertEqual(self.delete_service.delete_pack.call_count, 2)
         mock_info.assert_called_once()
-        self.assertIn("成功将 2 个", mock_info.call_args[0][2])
+        self.assertIn("成功: 2 个", mock_info.call_args[0][2])
+        self.assertIn("失败: 0 个", mock_info.call_args[0][2])
         self.window.refresh_packs = original_refresh
 
     @patch("app.ui.main_window.QMessageBox.warning")
@@ -111,6 +112,31 @@ class MainWindowDeleteAllTests(unittest.TestCase):
         self.assertIn("成功: 2 个", error_msg)
         self.assertIn("失败: 1 个", error_msg)
         self.assertIn("Pack 2", error_msg)
+
+    @patch("app.ui.main_window.QMessageBox.warning")
+    def test_delete_all_exception_fallback(self, mock_warning: MagicMock) -> None:
+        p1 = ResourcePack("pack1", Path("p1"), Path("m1"), "Pack 1", None)
+        p2 = ResourcePack("pack2", Path("p2"), Path("m2"), "Pack 2", None)
+        self.window.packs = [p1, p2]
+
+        mock_warning.side_effect = [QMessageBox.Yes, None]
+
+        def mock_delete(pack):
+            if pack.folder_name == "pack1":
+                raise RuntimeError("Something unexpectedly crashed")
+            return DeleteResult(True, "OK", None)
+        
+        self.delete_service.delete_pack.side_effect = mock_delete
+
+        self.window._delete_all_packs()
+
+        self.assertEqual(self.delete_service.delete_pack.call_count, 2)
+        self.assertEqual(mock_warning.call_count, 2)
+        error_msg = mock_warning.call_args_list[1][0][2]
+        self.assertIn("成功: 1 个", error_msg)
+        self.assertIn("失败: 1 个", error_msg)
+        self.assertIn("Pack 1", error_msg)
+        self.assertIn("Something unexpectedly crashed", error_msg)
 
 if __name__ == "__main__":
     unittest.main()

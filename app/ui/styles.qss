@@ -146,7 +146,7 @@ QPushButton#DangerOutlineButton:pressed {
 
 QPushButton#DangerOutlineButton:focus {
     border-color: #DC2626;
-    background-color: #FEF2E2;
+    background-color: #FEF2F2;
     outline: none;
 }
 

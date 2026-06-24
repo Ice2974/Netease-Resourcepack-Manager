@@ -548,12 +548,16 @@ class MainWindow(QMainWindow):
 
         try:
             for pack in packs_to_delete:
-                result = self.delete_service.delete_pack(pack)
-                if result.success:
-                    success_count += 1
-                    self.log_service.info(f"成功移入回收站: {pack.display_name} ({pack.path})")
-                else:
-                    failed_items.append((pack.display_name, str(pack.path), result.message))
+                try:
+                    result = self.delete_service.delete_pack(pack)
+                    if result.success:
+                        success_count += 1
+                        self.log_service.info(f"成功移入回收站: {pack.display_name} ({pack.path})")
+                    else:
+                        failed_items.append((pack.display_name, str(pack.path), result.message))
+                except Exception as exc:  # noqa: BLE001
+                    self.log_service.error(f"单包删除发生异常: {pack.display_name} - {exc}")
+                    failed_items.append((pack.display_name, str(pack.path), f"执行异常: {exc}"))
         finally:
             self.fs_watcher.blockSignals(False)
             QApplication.restoreOverrideCursor()
@@ -578,7 +582,8 @@ class MainWindow(QMainWindow):
 
             QMessageBox.warning(self, "批量删除完成(部分失败)", error_msg)
         else:
-            QMessageBox.information(self, "批量删除完成", f"成功将 {success_count} 个资源包移入回收站。")
+            success_msg = f"批量删除完成。\n成功: {success_count} 个\n失败: 0 个"
+            QMessageBox.information(self, "批量删除完成", success_msg)
 
     def enter_import_page(self) -> None:
         if not self.selected_pack:

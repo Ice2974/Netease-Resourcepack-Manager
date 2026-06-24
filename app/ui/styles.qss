@@ -98,6 +98,7 @@ QPushButton#PrimaryButton:focus {
     outline: none;
 }
 
+
 QPushButton#PrimaryButton:disabled {
     background-color: #93C5FD;
     border-color: #93C5FD;
@@ -127,9 +128,32 @@ QPushButton#DangerButton:focus {
     outline: none;
 }
 
+/* Danger Outline Button (Delete All) */
+QPushButton#DangerOutlineButton {
+    background-color: #FFFFFF;
+    border: 1px solid #DC2626;
+    color: #DC2626;
+    outline: none;
+}
+
+QPushButton#DangerOutlineButton:hover {
+    background-color: #FEF2F2;
+}
+
+QPushButton#DangerOutlineButton:pressed {
+    background-color: #FEE2E2;
+}
+
+QPushButton#DangerOutlineButton:focus {
+    border-color: #DC2626;
+    background-color: #FEF2E2;
+    outline: none;
+}
+
 QPushButton:focus:pressed,
 QPushButton#PrimaryButton:focus:pressed,
-QPushButton#DangerButton:focus:pressed {
+QPushButton#DangerButton:focus:pressed,
+QPushButton#DangerOutlineButton:focus:pressed {
     outline: none;
 }
 

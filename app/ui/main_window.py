@@ -5,6 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, QFileSystemWatcher, QRect, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QMouseEvent, QPainter, QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -251,16 +252,21 @@ class MainWindow(QMainWindow):
 
         self.refresh_button = QPushButton("手动刷新")
         self.open_logs_button = QPushButton("查看日志")
+        self.delete_all_button = QPushButton("全部删除")
         self.refresh_button.setFocusPolicy(Qt.NoFocus)
         self.open_logs_button.setFocusPolicy(Qt.NoFocus)
+        self.delete_all_button.setFocusPolicy(Qt.NoFocus)
+        self.delete_all_button.setObjectName("DangerOutlineButton")
 
         self.refresh_button.clicked.connect(self.refresh_packs)
         self.open_logs_button.clicked.connect(lambda: open_path(self.logs_dir))
+        self.delete_all_button.clicked.connect(self._delete_all_packs)
 
         top_layout.addLayout(info_layout)
         top_layout.addStretch(1)
         top_layout.addWidget(self.refresh_button)
         top_layout.addWidget(self.open_logs_button)
+        top_layout.addWidget(self.delete_all_button)
 
         # Table Card
         table_card = QFrame()
@@ -503,6 +509,76 @@ class MainWindow(QMainWindow):
                     QMessageBox.critical(self, "删除失败", result.message)
             else:
                 self.log_service.info(f"用户取消删除资源包: {pack.path}")
+
+    def _delete_all_packs(self) -> None:
+        if not self.packs:
+            QMessageBox.information(self, "提示", "当前没有可删除的资源包。")
+            return
+
+        packs_to_delete = list(self.packs)
+        total = len(packs_to_delete)
+
+        names_to_show = [p.display_name for p in packs_to_delete[:10]]
+        names_str = "\n".join(f"- {n}" for n in names_to_show)
+        if total > 10:
+            names_str += f"\n...等共 {total} 个资源包（完整详情见日志）"
+
+        reply = QMessageBox.warning(
+            self,
+            "确认批量删除",
+            f"是否确认将当前列表中的 {total} 个资源包移入回收站？\n\n{names_str}",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply != QMessageBox.Yes:
+            return
+
+        self.log_service.info(f"开始批量删除 {total} 个资源包...")
+
+        self.delete_all_button.setEnabled(False)
+        self.refresh_button.setEnabled(False)
+        self.open_logs_button.setEnabled(False)
+        self.pack_table.setEnabled(False)
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        self.fs_watcher.blockSignals(True)
+
+        success_count = 0
+        failed_items = []
+
+        try:
+            for pack in packs_to_delete:
+                result = self.delete_service.delete_pack(pack)
+                if result.success:
+                    success_count += 1
+                    self.log_service.info(f"成功移入回收站: {pack.display_name} ({pack.path})")
+                else:
+                    failed_items.append((pack.display_name, str(pack.path), result.message))
+        finally:
+            self.fs_watcher.blockSignals(False)
+            QApplication.restoreOverrideCursor()
+            self.delete_all_button.setEnabled(True)
+            self.refresh_button.setEnabled(True)
+            self.open_logs_button.setEnabled(True)
+            self.pack_table.setEnabled(True)
+
+            self.refresh_packs()
+
+        self.log_service.info(f"批量删除结束: 成功 {success_count} 个, 失败 {len(failed_items)} 个")
+
+        if failed_items:
+            for name, path, reason in failed_items:
+                self.log_service.error(f"删除失败项: {name} ({path}) - 原因: {reason}")
+
+            error_msg = f"批量删除完成。\n成功: {success_count} 个\n失败: {len(failed_items)} 个\n\n失败项示例:\n"
+            for i, (name, path, reason) in enumerate(failed_items[:10]):
+                error_msg += f"- {name}: {reason}\n"
+            if len(failed_items) > 10:
+                error_msg += "...\n完整失败列表请查看日志。"
+
+            QMessageBox.warning(self, "批量删除完成(部分失败)", error_msg)
+        else:
+            QMessageBox.information(self, "批量删除完成", f"成功将 {success_count} 个资源包移入回收站。")
 
     def enter_import_page(self) -> None:
         if not self.selected_pack:

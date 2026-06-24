@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,4 +28,12 @@ class RollbackResult:
     success: bool
     message: str
     backup_path: Path | None
+    error: str | None = None
+
+
+@dataclass(slots=True)
+class DeleteResult:
+    success: bool
+    message: str
+    target_path: Path | None
     error: str | None = None

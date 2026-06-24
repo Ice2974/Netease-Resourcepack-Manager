@@ -9,6 +9,7 @@ from app.services.import_service import ImportService
 from app.services.log_service import LogService
 from app.services.replace_service import ReplaceService
 from app.services.scan_service import ScanService
+from app.services.delete_service import DeleteService
 from app.ui.main_window import MainWindow
 from app.utils.runtime_paths import get_resource_path
 
@@ -24,6 +25,7 @@ def main() -> int:
     scan_service = ScanService(packcache_dir)
     import_service = ImportService()
     backup_service = BackupService(dirs["backups"])
+    delete_service = DeleteService(packcache_dir, log_service)
     replace_service = ReplaceService(
         backup_service=backup_service,
         import_service=import_service,
@@ -40,6 +42,7 @@ def main() -> int:
         scan_service=scan_service,
         import_service=import_service,
         replace_service=replace_service,
+        delete_service=delete_service,
         log_service=log_service,
         packcache_dir=packcache_dir,
         logs_dir=dirs["logs"],

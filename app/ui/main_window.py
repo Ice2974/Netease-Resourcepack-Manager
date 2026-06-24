@@ -28,15 +28,18 @@ from app.services.import_service import ImportService
 from app.services.log_service import LogService
 from app.services.replace_service import ReplaceService
 from app.services.scan_service import ScanService
+from app.services.delete_service import DeleteService
 from app.ui.drop_zone import DropZone
 from app.utils.shell import open_path, reveal_file
 
 
 class PackTableDelegate(QStyledItemDelegate):
-    def __init__(self, open_folder_callback) -> None:
+    def __init__(self, open_folder_callback, delete_pack_callback) -> None:
         super().__init__()
         self.open_folder_callback = open_folder_callback
+        self.delete_pack_callback = delete_pack_callback
         self.folder_icon = self._create_folder_icon()
+        self.trash_icon = self._create_trash_icon()
 
     def paint(self, painter, option, index) -> None:
         painter.save()
@@ -65,19 +68,25 @@ class PackTableDelegate(QStyledItemDelegate):
         if isinstance(icon, QIcon) and not icon.isNull():
             icon.paint(painter, icon_rect, Qt.AlignCenter)
 
+        # Draw Folder Button Background
+        folder_rect = self._folder_icon_rect(option.rect)
+
         # Draw Text
         text = index.data(Qt.DisplayRole)
-        text_rect = QRect(icon_rect.right() + 16, rect.top(), rect.width() - icon_rect.width() - 80, rect.height())
-        
+        text_x = icon_rect.right() + 16
+        text_width = folder_rect.left() - 16 - text_x
+        text_rect = QRect(text_x, rect.top(), text_width, rect.height())
+
         font = option.font
         font.setPixelSize(15)
         font.setBold(True)
         painter.setFont(font)
         painter.setPen(QColor("#111827"))
-        painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter, text)
 
-        # Draw Folder Button Background
-        folder_rect = self._folder_icon_rect(option.rect)
+        metrics = painter.fontMetrics()
+        elided_text = metrics.elidedText(text, Qt.ElideRight, text_rect.width())
+        painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_text)
+
         if option.state & QStyle.State_Selected:
             painter.setPen(Qt.NoPen)
             painter.setBrush(QColor("#DBEAFE"))
@@ -90,19 +99,45 @@ class PackTableDelegate(QStyledItemDelegate):
         # Draw Folder Icon
         self.folder_icon.paint(painter, folder_rect, Qt.AlignCenter)
 
+        # Draw Trash Button Background
+        trash_rect = self._trash_icon_rect(option.rect)
+        if option.state & QStyle.State_Selected:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor("#FEE2E2"))
+            painter.drawRoundedRect(trash_rect.adjusted(-4, -4, 4, 4), 6, 6)
+        elif option.state & QStyle.State_MouseOver:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor("#FEF2F2"))
+            painter.drawRoundedRect(trash_rect.adjusted(-4, -4, 4, 4), 6, 6)
+
+        # Draw Trash Icon
+        self.trash_icon.paint(painter, trash_rect, Qt.AlignCenter)
+
         painter.restore()
 
     def editorEvent(self, event, model, option, index):  # noqa: N802
-        if event.type() == QEvent.MouseButtonRelease:
+        if event.type() in (QEvent.MouseButtonRelease, QEvent.MouseButtonDblClick):
             mouse_event = event
             if isinstance(mouse_event, QMouseEvent) and mouse_event.button() == Qt.LeftButton:
                 folder_rect = self._folder_icon_rect(option.rect).adjusted(-4, -4, 4, 4)
+                trash_rect = self._trash_icon_rect(option.rect).adjusted(-4, -4, 4, 4)
                 if folder_rect.contains(mouse_event.position().toPoint()):
-                    self.open_folder_callback(index.row())
+                    if event.type() == QEvent.MouseButtonRelease:
+                        self.open_folder_callback(index.row())
+                    return True
+                elif trash_rect.contains(mouse_event.position().toPoint()):
+                    if event.type() == QEvent.MouseButtonRelease:
+                        self.delete_pack_callback(index.row())
                     return True
         return super().editorEvent(event, model, option, index)
 
     def _folder_icon_rect(self, rect):
+        size = 20
+        x = rect.right() - 68  # Moved left to make room for trash icon
+        y = rect.center().y() - (size // 2)
+        return QRect(x, y, size, size)
+
+    def _trash_icon_rect(self, rect):
         size = 20
         x = rect.right() - 36
         y = rect.center().y() - (size // 2)
@@ -122,6 +157,29 @@ class PackTableDelegate(QStyledItemDelegate):
         painter.end()
         return QIcon(pix)
 
+    def _create_trash_icon(self) -> QIcon:
+        pix = QPixmap(20, 20)
+        pix.fill(Qt.transparent)
+        painter = QPainter(pix)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        pen = QColor("#DC2626")  # Red color
+        painter.setPen(pen)
+
+        # Trash bin body
+        painter.drawRect(5, 7, 10, 10)
+        # Trash bin lid
+        painter.drawLine(3, 5, 17, 5)
+        # Trash bin lid handle
+        painter.drawLine(8, 3, 12, 3)
+        painter.drawLine(8, 3, 8, 5)
+        painter.drawLine(12, 3, 12, 5)
+        # Lines on the bin
+        painter.drawLine(8, 9, 8, 14)
+        painter.drawLine(12, 9, 12, 14)
+
+        painter.end()
+        return QIcon(pix)
+
 
 class MainWindow(QMainWindow):
     def __init__(
@@ -129,6 +187,7 @@ class MainWindow(QMainWindow):
         scan_service: ScanService,
         import_service: ImportService,
         replace_service: ReplaceService,
+        delete_service: DeleteService,
         log_service: LogService,
         packcache_dir: Path,
         logs_dir: Path,
@@ -137,6 +196,7 @@ class MainWindow(QMainWindow):
         self.scan_service = scan_service
         self.import_service = import_service
         self.replace_service = replace_service
+        self.delete_service = delete_service
         self.log_service = log_service
         self.packcache_dir = packcache_dir
         self.logs_dir = logs_dir
@@ -185,12 +245,12 @@ class MainWindow(QMainWindow):
         title_label.setObjectName("TitleLabel")
         self.packcache_label = QLabel(f"扫描目录: {self.packcache_dir}")
         self.packcache_label.setObjectName("SubtitleLabel")
-        
+
         info_layout.addWidget(title_label)
         info_layout.addWidget(self.packcache_label)
 
         self.refresh_button = QPushButton("手动刷新")
-        self.open_logs_button = QPushButton("打开日志目录")
+        self.open_logs_button = QPushButton("查看日志")
         self.refresh_button.setFocusPolicy(Qt.NoFocus)
         self.open_logs_button.setFocusPolicy(Qt.NoFocus)
 
@@ -216,11 +276,11 @@ class MainWindow(QMainWindow):
         self.pack_table.setShowGrid(False)
         self.pack_table.setFocusPolicy(Qt.NoFocus)
         self.pack_table.verticalHeader().setDefaultSectionSize(72)
-        
+
         self.pack_table.itemSelectionChanged.connect(self._on_selection_changed)
         self.pack_table.doubleClicked.connect(self._on_table_double_clicked)
         self.pack_table.horizontalHeader().setStretchLastSection(True)
-        self.pack_table.setItemDelegate(PackTableDelegate(self._open_pack_by_row))
+        self.pack_table.setItemDelegate(PackTableDelegate(self._open_pack_by_row, self._delete_pack_by_row))
 
         table_layout.addWidget(self.pack_table)
 
@@ -241,7 +301,7 @@ class MainWindow(QMainWindow):
         self.back_button.setFocusPolicy(Qt.NoFocus)
         header_title = QLabel("导入与替换")
         header_title.setObjectName("TitleLabel")
-        
+
         header_layout.addWidget(self.back_button)
         header_layout.addWidget(header_title)
         header_layout.addStretch(1)
@@ -251,7 +311,7 @@ class MainWindow(QMainWindow):
         target_card.setProperty("class", "Card")
         target_layout = QVBoxLayout(target_card)
         target_layout.setContentsMargins(20, 16, 20, 16)
-        
+
         target_title = QLabel("目标资源包")
         target_title.setObjectName("SubtitleLabel")
         self.target_label = QLabel("未选择")
@@ -268,7 +328,7 @@ class MainWindow(QMainWindow):
 
         file_title = QLabel("导入文件")
         file_title.setObjectName("SubtitleLabel")
-        
+
         self.drop_zone = DropZone()
         self.drop_zone.file_dropped.connect(self._set_archive_file)
         self.drop_zone.setMinimumHeight(160)
@@ -278,7 +338,7 @@ class MainWindow(QMainWindow):
         self.choose_file_button.setFocusPolicy(Qt.NoFocus)
         self.file_label = QLabel("未选择")
         self.file_label.setStyleSheet("color: #4B5563; font-size: 14px;")
-        
+
         button_row.addWidget(self.choose_file_button)
         button_row.addSpacing(16)
         button_row.addWidget(self.file_label)
@@ -303,10 +363,10 @@ class MainWindow(QMainWindow):
         self.replace_button.setObjectName("PrimaryButton")
         self.replace_button.setEnabled(False)
         self.replace_button.setMinimumHeight(36)
-        
+
         self.result_label = QLabel("")
         self.result_label.setWordWrap(True)
-        
+
         result_action_layout = QHBoxLayout()
         self.open_target_button = QPushButton("打开目标目录")
         self.rollback_button = QPushButton("回滚到替换前")
@@ -351,12 +411,12 @@ class MainWindow(QMainWindow):
         pix.fill(Qt.transparent)
         painter = QPainter(pix)
         painter.setRenderHint(QPainter.Antialiasing)
-        
+
         # Draw rounded rect background
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor("#E5E7EB"))
         painter.drawRoundedRect(pix.rect(), 8, 8)
-        
+
         # Draw Text
         painter.setPen(QColor("#6B7280"))
         font = painter.font()
@@ -364,7 +424,7 @@ class MainWindow(QMainWindow):
         font.setBold(True)
         painter.setFont(font)
         painter.drawText(pix.rect(), Qt.AlignCenter, "RP")
-        
+
         painter.end()
         return QIcon(pix)
 
@@ -420,6 +480,29 @@ class MainWindow(QMainWindow):
             self.pack_table.selectRow(row)
             self.selected_pack = self.packs[row]
             open_path(self.packs[row].path)
+
+    def _delete_pack_by_row(self, row: int) -> None:
+        if 0 <= row < len(self.packs):
+            pack = self.packs[row]
+
+            # 确认弹窗
+            reply = QMessageBox.warning(
+                self,
+                "确认删除",
+                f"是否确认将资源包移入回收站？\n\n名称：{pack.display_name}\n路径：{pack.path}",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+
+            if reply == QMessageBox.Yes:
+                result = self.delete_service.delete_pack(pack)
+                if result.success:
+                    QMessageBox.information(self, "删除成功", result.message)
+                    self.refresh_packs()
+                else:
+                    QMessageBox.critical(self, "删除失败", result.message)
+            else:
+                self.log_service.info(f"用户取消删除资源包: {pack.path}")
 
     def enter_import_page(self) -> None:
         if not self.selected_pack:

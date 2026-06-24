@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from app.models.resource_pack import ResourcePack
 from app.services.delete_service import DeleteService
@@ -91,7 +92,7 @@ class DeleteServiceTests(unittest.TestCase):
         def mock_send(target_path):
             shutil.rmtree(target_path)
 
-        with unittest.mock.patch.object(self.delete_service, "_send_to_recycle_bin", side_effect=mock_send):
+        with patch.object(self.delete_service, "_send_to_recycle_bin", side_effect=mock_send):
             result = self.delete_service.delete_pack(target_pack)
             self.assertTrue(result.success)
             self.assertFalse(pack_dir.exists())
@@ -108,7 +109,7 @@ class DeleteServiceTests(unittest.TestCase):
             icon_path=None
         )
 
-        with unittest.mock.patch.object(self.delete_service, "_send_to_recycle_bin", side_effect=RuntimeError("Fake error")):
+        with patch.object(self.delete_service, "_send_to_recycle_bin", side_effect=RuntimeError("Fake error")):
             result = self.delete_service.delete_pack(target_pack)
             self.assertFalse(result.success)
             self.assertIn("Fake error", result.message)
@@ -127,7 +128,7 @@ class DeleteServiceTests(unittest.TestCase):
         )
 
         # Mock _send_to_recycle_bin to do nothing
-        with unittest.mock.patch.object(self.delete_service, "_send_to_recycle_bin", return_value=None):
+        with patch.object(self.delete_service, "_send_to_recycle_bin", return_value=None):
             result = self.delete_service.delete_pack(target_pack)
             self.assertFalse(result.success)
             self.assertIn("目标文件仍然存在", result.message)

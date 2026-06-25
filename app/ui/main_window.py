@@ -3,16 +3,19 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QFileSystemWatcher, QRect, Qt, QTimer
-from PySide6.QtGui import QColor, QIcon, QMouseEvent, QPainter, QPixmap
+from PySide6.QtGui import QColor, QIcon, QKeySequence, QMouseEvent, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
+    QComboBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QRadioButton,
     QStackedWidget,
@@ -21,6 +24,7 @@ from PySide6.QtWidgets import (
     QStyleOptionViewItem,
     QTableWidget,
     QTableWidgetItem,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -229,6 +233,11 @@ class MainWindow(QMainWindow):
         self.fs_watcher = QFileSystemWatcher(self)
         self.fs_watcher.directoryChanged.connect(self._schedule_refresh)
         self._update_watch_paths()
+
+        # Delete 键删除当前选中资源包；WindowShortcut 仅在主窗口激活时生效，
+        # 模态确认弹窗打开时主窗口非激活，不会重复触发。
+        self.delete_shortcut = QShortcut(QKeySequence(Qt.Key_Delete), self)
+        self.delete_shortcut.activated.connect(self._on_delete_shortcut)
 
         self.refresh_packs()
 
@@ -567,6 +576,60 @@ class MainWindow(QMainWindow):
             else:
                 self.log_service.info(f"用户取消删除资源包: {pack.path}")
 
+    def _get_selected_packs(self) -> list[ResourcePack]:
+        """返回当前表格选中的资源包，按行号升序、去重。"""
+        selection_model = self.pack_table.selectionModel()
+        if selection_model is None:
+            return []
+        rows = sorted({index.row() for index in selection_model.selectedRows()})
+        return [self.packs[r] for r in rows if 0 <= r < len(self.packs)]
+
+    @staticmethod
+    def _format_pack_names(packs: list[ResourcePack]) -> str:
+        """格式化待删除资源包名称列表，超过 10 个显示“等 X 个”。"""
+        names = [p.display_name for p in packs[:10]]
+        text = "\n".join(f"- {n}" for n in names)
+        if len(packs) > 10:
+            text += f"\n...等共 {len(packs)} 个资源包（完整详情见日志）"
+        return text
+
+    def _delete_selected_packs(self) -> None:
+        """删除当前选中的资源包：1 个走单删确认，多个走批量确认。"""
+        packs = self._get_selected_packs()
+        if not packs:
+            return
+
+        if len(packs) == 1:
+            # 选中 1 个：以 selectedRows() 推导的目标为准，走单删确认流程。
+            row = self.pack_table.selectionModel().selectedRows()[0].row()
+            self._delete_pack_by_row(row)
+            return
+
+        total = len(packs)
+        names_str = self._format_pack_names(packs)
+        reply = QMessageBox.warning(
+            self,
+            "确认批量删除",
+            f"是否确认将选中的 {total} 个资源包移入回收站？\n\n{names_str}",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply != QMessageBox.Yes:
+            self.log_service.info(f"用户取消批量删除选中的 {total} 个资源包")
+            return
+
+        self._execute_batch_delete(packs)
+
+    def _on_delete_shortcut(self) -> None:
+        """Delete 键触发：仅主页响应，焦点在可编辑控件时不拦截。"""
+        if self.stack.currentWidget() is not self.main_page:
+            return
+        focus = QApplication.focusWidget()
+        if isinstance(focus, (QLineEdit, QTextEdit, QPlainTextEdit, QComboBox)):
+            return
+        self._delete_selected_packs()
+
     def _delete_all_packs(self) -> None:
         if not self.packs:
             QMessageBox.information(self, "提示", "当前没有可删除的资源包。")
@@ -575,11 +638,7 @@ class MainWindow(QMainWindow):
         packs_to_delete = list(self.packs)
         total = len(packs_to_delete)
 
-        names_to_show = [p.display_name for p in packs_to_delete[:10]]
-        names_str = "\n".join(f"- {n}" for n in names_to_show)
-        if total > 10:
-            names_str += f"\n...等共 {total} 个资源包（完整详情见日志）"
-
+        names_str = self._format_pack_names(packs_to_delete)
         reply = QMessageBox.warning(
             self,
             "确认批量删除",
@@ -591,6 +650,11 @@ class MainWindow(QMainWindow):
         if reply != QMessageBox.Yes:
             return
 
+        self._execute_batch_delete(packs_to_delete)
+
+    def _execute_batch_delete(self, packs_to_delete: list[ResourcePack]) -> None:
+        """执行批量删除（已确认）。packs_to_delete 应为快照，避免刷新期间越界。"""
+        total = len(packs_to_delete)
         self.log_service.info(f"开始批量删除 {total} 个资源包...")
 
         self.delete_all_button.setEnabled(False)

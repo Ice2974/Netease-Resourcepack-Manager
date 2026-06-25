@@ -5,7 +5,7 @@ import os
 import shutil
 
 APP_NAME = "NeteaseResourcepackManager"
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 
 def get_appdata_root() -> Path:

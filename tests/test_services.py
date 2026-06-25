@@ -9,6 +9,7 @@ import zipfile
 from unittest.mock import patch
 
 from app.models.resource_pack import ResourcePack
+from app.models.replace_mode import ReplaceMode
 from app.services.backup_service import BackupService
 from app.services.import_service import ImportService
 from app.services.log_service import LogService
@@ -77,6 +78,22 @@ class ServiceTests(unittest.TestCase):
             zf.writestr(root + "textures/blocks/stone.png", b"new")
             zf.writestr(root + "texts/en_US.lang", b"k=v")
         return archive_real
+
+    def _create_archive_with_files(self, archive_path: Path, files: dict[str, bytes | str]) -> Path:
+        archive_real = archive_path.with_suffix(".zip")
+        with zipfile.ZipFile(archive_real, "w") as zf:
+            for name, data in files.items():
+                if isinstance(data, str):
+                    data = data.encode("utf-8")
+                zf.writestr(name, data)
+        return archive_real
+
+    def _snapshot(self, d: Path) -> dict[str, bytes]:
+        snap: dict[str, bytes] = {}
+        for p in d.rglob("*"):
+            if p.is_file():
+                snap[p.relative_to(d).as_posix()] = p.read_bytes()
+        return snap
 
     def test_scan_first_level_only(self) -> None:
         pack1 = self.packcache / "pack1"
@@ -158,6 +175,123 @@ class ServiceTests(unittest.TestCase):
         self.assertFalse(result.success)
         after_files = sorted([p.relative_to(target.path).as_posix() for p in target.path.rglob("*")])
         self.assertEqual(before_files, after_files)
+
+    def _create_merge_target(self) -> ResourcePack:
+        target = self._create_target_pack()
+        (target.path / "keep.txt").write_text("keep", encoding="utf-8")
+        (target.path / "shared.txt").write_text("target_shared", encoding="utf-8")
+        nested = target.path / "nested"
+        nested.mkdir()
+        (nested / "inner.txt").write_text("target_nested", encoding="utf-8")
+        return target
+
+    def _create_merge_archive(self, archive_path: Path) -> Path:
+        return self._create_archive_with_files(
+            archive_path,
+            {
+                "manifest.json": json.dumps(_manifest("导入包"), ensure_ascii=False),
+                "shared.txt": "import_shared",
+                "new.txt": "import_new",
+                "nested/inner.txt": "import_nested",
+                "nested/extra.txt": "import_extra",
+            },
+        )
+
+    def test_replace_full_explicit(self) -> None:
+        target = self._create_merge_target()
+        target_manifest_before = (target.path / "manifest.json").read_text(encoding="utf-8")
+        archive = self._create_merge_archive(self.root / "full_explicit")
+        validation = self.import_service.validate_archive(archive)
+        self.assertTrue(validation.valid)
+
+        result = self.replace_service.replace_from_archive(target, validation, ReplaceMode.FULL)
+
+        self.assertTrue(result.success)
+        self.assertEqual((target.path / "manifest.json").read_text(encoding="utf-8"), target_manifest_before)
+        # 目标独有旧文件被清理
+        self.assertFalse((target.path / "keep.txt").exists())
+        # 新文件被导入（含嵌套目录；同名文件被导入包版本替换）
+        self.assertEqual((target.path / "shared.txt").read_text(encoding="utf-8"), "import_shared")
+        self.assertEqual((target.path / "new.txt").read_text(encoding="utf-8"), "import_new")
+        self.assertEqual((target.path / "nested" / "inner.txt").read_text(encoding="utf-8"), "import_nested")
+        self.assertEqual((target.path / "nested" / "extra.txt").read_text(encoding="utf-8"), "import_extra")
+
+    def test_replace_merge(self) -> None:
+        target = self._create_merge_target()
+        target_manifest_before = (target.path / "manifest.json").read_text(encoding="utf-8")
+        archive = self._create_merge_archive(self.root / "merge")
+        validation = self.import_service.validate_archive(archive)
+        self.assertTrue(validation.valid)
+
+        result = self.replace_service.replace_from_archive(target, validation, ReplaceMode.MERGE)
+
+        self.assertTrue(result.success)
+        self.assertEqual((target.path / "manifest.json").read_text(encoding="utf-8"), target_manifest_before)
+        # 同名文件被覆盖（含嵌套目录）
+        self.assertEqual((target.path / "shared.txt").read_text(encoding="utf-8"), "import_shared")
+        self.assertEqual((target.path / "nested" / "inner.txt").read_text(encoding="utf-8"), "import_nested")
+        # 目标独有旧文件保留
+        self.assertEqual((target.path / "keep.txt").read_text(encoding="utf-8"), "keep")
+        # 新文件被加入
+        self.assertEqual((target.path / "new.txt").read_text(encoding="utf-8"), "import_new")
+        self.assertEqual((target.path / "nested" / "extra.txt").read_text(encoding="utf-8"), "import_extra")
+
+    def test_replace_add_only(self) -> None:
+        target = self._create_merge_target()
+        target_manifest_before = (target.path / "manifest.json").read_text(encoding="utf-8")
+        archive = self._create_merge_archive(self.root / "add_only")
+        validation = self.import_service.validate_archive(archive)
+        self.assertTrue(validation.valid)
+
+        result = self.replace_service.replace_from_archive(target, validation, ReplaceMode.ADD_ONLY)
+
+        self.assertTrue(result.success)
+        self.assertEqual((target.path / "manifest.json").read_text(encoding="utf-8"), target_manifest_before)
+        # 同名旧文件不被覆盖（含嵌套目录）
+        self.assertEqual((target.path / "shared.txt").read_text(encoding="utf-8"), "target_shared")
+        self.assertEqual((target.path / "nested" / "inner.txt").read_text(encoding="utf-8"), "target_nested")
+        # 目标独有旧文件保留
+        self.assertEqual((target.path / "keep.txt").read_text(encoding="utf-8"), "keep")
+        # 新文件被加入
+        self.assertEqual((target.path / "new.txt").read_text(encoding="utf-8"), "import_new")
+        self.assertEqual((target.path / "nested" / "extra.txt").read_text(encoding="utf-8"), "import_extra")
+
+    def test_replace_merge_fail_auto_rollback(self) -> None:
+        target = self._create_merge_target()
+        archive = self._create_merge_archive(self.root / "merge_fail")
+        validation = self.import_service.validate_archive(archive)
+        before = self._snapshot(target.path)
+
+        def partial_fail(target_dir: Path, validation: ValidationResult, overwrite: bool) -> None:
+            # 模拟半替换：写入一个文件后失败
+            (target_dir / "shared.txt").write_bytes(b"import_shared")
+            (target_dir / "partial.txt").write_bytes(b"partial")
+            raise RuntimeError("mock failure")
+
+        with patch.object(ReplaceService, "_copy_archive_content", side_effect=partial_fail):
+            result = self.replace_service.replace_from_archive(target, validation, ReplaceMode.MERGE)
+
+        self.assertFalse(result.success)
+        after = self._snapshot(target.path)
+        # 文件列表和文件内容都恢复到替换前
+        self.assertEqual(before, after)
+
+    def test_replace_add_only_fail_auto_rollback(self) -> None:
+        target = self._create_merge_target()
+        archive = self._create_merge_archive(self.root / "add_only_fail")
+        validation = self.import_service.validate_archive(archive)
+        before = self._snapshot(target.path)
+
+        def partial_fail(target_dir: Path, validation: ValidationResult, overwrite: bool) -> None:
+            (target_dir / "new.txt").write_bytes(b"import_new")
+            raise RuntimeError("mock failure")
+
+        with patch.object(ReplaceService, "_copy_archive_content", side_effect=partial_fail):
+            result = self.replace_service.replace_from_archive(target, validation, ReplaceMode.ADD_ONLY)
+
+        self.assertFalse(result.success)
+        after = self._snapshot(target.path)
+        self.assertEqual(before, after)
 
     def test_manual_rollback_latest(self) -> None:
         target = self._create_target_pack()

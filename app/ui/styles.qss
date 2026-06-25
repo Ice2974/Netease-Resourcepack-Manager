@@ -201,3 +201,37 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
     background: none;
 }
+
+/* Radio Buttons (Replace Mode) */
+QRadioButton {
+    spacing: 8px;
+    color: #111827;
+    font-weight: 500;
+    outline: none;
+}
+
+QRadioButton:focus {
+    outline: none;
+}
+
+QRadioButton::indicator {
+    width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    border: 2px solid #D1D5DB;
+    background-color: #FFFFFF;
+}
+
+QRadioButton::indicator:hover {
+    border-color: #9CA3AF;
+}
+
+QRadioButton::indicator:checked {
+    border-color: #2563EB;
+    background-color: #2563EB;
+}
+
+QRadioButton:disabled::indicator {
+    border-color: #E5E7EB;
+    background-color: #F3F4F6;
+}

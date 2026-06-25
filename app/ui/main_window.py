@@ -6,6 +6,7 @@ from PySide6.QtCore import QEvent, QFileSystemWatcher, QRect, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QMouseEvent, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -13,6 +14,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QRadioButton,
     QStackedWidget,
     QStyle,
     QStyledItemDelegate,
@@ -24,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.models.operations import ValidationResult
+from app.models.replace_mode import ReplaceMode
 from app.models.resource_pack import ResourcePack
 from app.services.import_service import ImportService
 from app.services.log_service import LogService
@@ -359,6 +362,47 @@ class MainWindow(QMainWindow):
         import_layout.addLayout(button_row)
         import_layout.addWidget(self.validate_label)
 
+        # Replace Mode Card
+        mode_card = QFrame()
+        mode_card.setProperty("class", "Card")
+        mode_layout = QVBoxLayout(mode_card)
+        mode_layout.setContentsMargins(20, 20, 20, 20)
+        mode_layout.setSpacing(12)
+
+        mode_title = QLabel("替换模式")
+        mode_title.setObjectName("SubtitleLabel")
+        mode_layout.addWidget(mode_title)
+
+        self.mode_group = QButtonGroup(self)
+        self.mode_map: dict[int, ReplaceMode] = {
+            0: ReplaceMode.FULL,
+            1: ReplaceMode.MERGE,
+            2: ReplaceMode.ADD_ONLY,
+        }
+        mode_options = [
+            (0, "全量替换", "清空原资源包内容后导入新文件，保留原 manifest.json"),
+            (1, "覆盖合并", "导入新文件，同名文件会被覆盖，其他原文件保留"),
+            (2, "仅新增", "只导入不存在的文件，同名文件跳过，不覆盖"),
+        ]
+        for mode_id, title, desc in mode_options:
+            row = QHBoxLayout()
+            radio = QRadioButton(title)
+            radio.setFocusPolicy(Qt.NoFocus)
+            desc_label = QLabel(desc)
+            desc_label.setStyleSheet("color: #6B7280; font-size: 12px;")
+            desc_label.setWordWrap(True)
+            row.addWidget(radio)
+            row.addWidget(desc_label, 1)
+            mode_layout.addLayout(row)
+            self.mode_group.addButton(radio, mode_id)
+
+        self.mode_group.button(0).setChecked(True)
+
+        mode_hint = QLabel("所有模式都会保留目标 manifest.json，并在替换前自动备份。")
+        mode_hint.setStyleSheet("color: #6B7280; font-size: 12px; margin-top: 4px;")
+        mode_hint.setWordWrap(True)
+        mode_layout.addWidget(mode_hint)
+
         # Action & Result Card
         action_card = QFrame()
         action_card.setProperty("class", "Card")
@@ -394,6 +438,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(header_layout)
         layout.addWidget(target_card)
         layout.addWidget(import_card)
+        layout.addWidget(mode_card)
         layout.addWidget(action_card)
         layout.addStretch(1)
 
@@ -647,7 +692,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "提示", "请先选择并通过校验后再执行替换。")
             return
 
-        result = self.replace_service.replace_from_archive(self.selected_pack, self.validation_result)
+        mode = self.mode_map.get(self.mode_group.checkedId(), ReplaceMode.FULL)
+        result = self.replace_service.replace_from_archive(self.selected_pack, self.validation_result, mode)
         self.result_label.setText(result.message)
 
         if result.success:

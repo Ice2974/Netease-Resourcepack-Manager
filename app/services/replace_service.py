@@ -5,6 +5,7 @@ import shutil
 import zipfile
 
 from app.models.operations import ReplaceResult, RollbackResult, ValidationResult
+from app.models.replace_mode import ReplaceMode
 from app.models.resource_pack import ResourcePack
 from app.services.backup_service import BackupService
 from app.services.import_service import ImportService
@@ -22,20 +23,32 @@ class ReplaceService:
         self.import_service = import_service
         self.log_service = log_service
 
-    def replace_from_archive(self, target_pack: ResourcePack, validation: ValidationResult) -> ReplaceResult:
+    def replace_from_archive(
+        self,
+        target_pack: ResourcePack,
+        validation: ValidationResult,
+        mode: ReplaceMode = ReplaceMode.FULL,
+    ) -> ReplaceResult:
         target_name = target_pack.display_name
         import_name = validation.import_name
         backup_path: Path | None = None
 
         try:
-            self.log_service.info(f"替换开始: target={target_pack.path}, import={validation.archive_path}")
+            self.log_service.info(
+                f"替换开始: mode={mode.display_name}, target={target_pack.path}, import={validation.archive_path}"
+            )
             backup_path = self.backup_service.create_backup(target_pack.path, target_pack.folder_name)
             self.log_service.info(f"备份创建成功: {backup_path}")
 
-            self._clear_target_except_manifest(target_pack.path)
-            self._copy_archive_content(target_pack.path, validation)
+            if mode is ReplaceMode.FULL:
+                self._clear_target_except_manifest(target_pack.path)
+                self._copy_archive_content(target_pack.path, validation, overwrite=True)
+            elif mode is ReplaceMode.MERGE:
+                self._copy_archive_content(target_pack.path, validation, overwrite=True)
+            else:  # ReplaceMode.ADD_ONLY
+                self._copy_archive_content(target_pack.path, validation, overwrite=False)
 
-            self.log_service.info("替换成功")
+            self.log_service.info(f"替换成功: mode={mode.display_name}")
             return ReplaceResult(
                 success=True,
                 message=f"已将[{target_name}]替换为[{import_name}]，请重新进入服务器使材质生效。",
@@ -95,7 +108,7 @@ class ReplaceService:
             else:
                 child.unlink()
 
-    def _copy_archive_content(self, target_dir: Path, validation: ValidationResult) -> None:
+    def _copy_archive_content(self, target_dir: Path, validation: ValidationResult, overwrite: bool) -> None:
         root_prefix = validation.root_prefix.replace("\\", "/").strip("/")
         prefix_parts = tuple(PurePosixPath(root_prefix).parts) if root_prefix else tuple()
 
@@ -125,6 +138,12 @@ class ReplaceService:
                 if target_root not in safe_target.parents and safe_target != target_root:
                     raise ValueError("压缩包包含不安全路径，已拦截。")
 
+                if not overwrite and safe_target.exists():
+                    # 仅新增模式：目标已存在同名文件/目录，跳过不覆盖。
+                    continue
+
+                # 类型冲突（目标存在同名目录而非文件、或父路径是文件）会让下方 mkdir / open 抛异常，
+                # 异常向上传播触发自动回滚，避免静默删除目录或改写结构。
                 safe_target.parent.mkdir(parents=True, exist_ok=True)
                 with zf.open(info, "r") as src, safe_target.open("wb") as dst:
                     shutil.copyfileobj(src, dst)

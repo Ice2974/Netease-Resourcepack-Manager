@@ -566,7 +566,11 @@ class MainWindow(QMainWindow):
             self.open_logs_button.setEnabled(True)
             self.pack_table.setEnabled(True)
 
+        # 刷新单独捕获，避免扫描异常吞掉批量删除的结果汇总与结束日志
+        try:
             self.refresh_packs()
+        except Exception as exc:  # noqa: BLE001
+            self.log_service.error(f"批量删除后刷新列表失败: {exc}")
 
         self.log_service.info(f"批量删除结束: 成功 {success_count} 个, 失败 {len(failed_items)} 个")
 

@@ -114,6 +114,29 @@ class MainWindowDeleteAllTests(unittest.TestCase):
         self.assertIn("Pack 2", error_msg)
 
     @patch("app.ui.main_window.QMessageBox.warning")
+    @patch("app.ui.main_window.QMessageBox.information")
+    def test_delete_all_refresh_failure_still_reports(self, mock_info: MagicMock, mock_warning: MagicMock) -> None:
+        # 回归：批量删除后 refresh_packs 抛异常时，仍应弹出结果汇总并写结束日志
+        p1 = ResourcePack("pack1", Path("p1"), Path("m1"), "Pack 1", None)
+        p2 = ResourcePack("pack2", Path("p2"), Path("m2"), "Pack 2", None)
+        self.window.packs = [p1, p2]
+
+        mock_warning.return_value = QMessageBox.Yes
+        self.delete_service.delete_pack.return_value = DeleteResult(True, "OK", None)
+
+        def raising_refresh():
+            raise RuntimeError("scan failed")
+        self.window.refresh_packs = raising_refresh
+
+        self.window._delete_all_packs()
+
+        self.assertEqual(self.delete_service.delete_pack.call_count, 2)
+        mock_info.assert_called_once()
+        self.assertIn("成功: 2 个", mock_info.call_args[0][2])
+        self.assertIn("失败: 0 个", mock_info.call_args[0][2])
+        self.log_service.error.assert_any_call("批量删除后刷新列表失败: scan failed")
+
+    @patch("app.ui.main_window.QMessageBox.warning")
     def test_delete_all_exception_fallback(self, mock_warning: MagicMock) -> None:
         p1 = ResourcePack("pack1", Path("p1"), Path("m1"), "Pack 1", None)
         p2 = ResourcePack("pack2", Path("p2"), Path("m2"), "Pack 2", None)

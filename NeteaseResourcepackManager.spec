@@ -13,6 +13,7 @@ a = Analysis(
     binaries=[],
     datas=[
         (str(project_root / 'app' / 'ui' / 'styles.qss'), 'app/ui'),
+        (str(project_root / 'app' / 'ui' / 'icon.ico'), 'app/ui'),
     ],
     hiddenimports=[],
     hookspath=[],
@@ -37,6 +38,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,
+    icon=str(project_root / 'app' / 'ui' / 'icon.ico'),
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,

@@ -650,6 +650,11 @@ class MainWindow(QMainWindow):
         self.validate_label.setText("请先选择 .zip 或 .mcpack 文件")
         self.validate_label.setStyleSheet("color: #6B7280; font-size: 13px; margin-top: 8px;")
 
+        # 每次进入导入页重置替换模式为“全量替换”，不持久化用户上次选择。
+        default_mode_button = self.mode_group.button(0)
+        if default_mode_button is not None:
+            default_mode_button.setChecked(True)
+
         self.stack.setCurrentWidget(self.import_page)
 
     def _go_main(self) -> None:

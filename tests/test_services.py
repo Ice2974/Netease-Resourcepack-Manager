@@ -293,6 +293,32 @@ class ServiceTests(unittest.TestCase):
         after = self._snapshot(target.path)
         self.assertEqual(before, after)
 
+    def test_replace_merge_type_conflict_rollback(self) -> None:
+        # 目标中 textures 是一个文件；导入包要写 textures/a.png，父路径是文件导致 mkdir 失败。
+        target = self._create_target_pack()
+        (target.path / "textures").write_text("target_textures_file", encoding="utf-8")
+        target_manifest_before = (target.path / "manifest.json").read_text(encoding="utf-8")
+
+        archive = self._create_archive_with_files(
+            self.root / "merge_type_conflict",
+            {
+                "manifest.json": json.dumps(_manifest("导入包"), ensure_ascii=False),
+                "textures/a.png": b"import_png",
+            },
+        )
+        validation = self.import_service.validate_archive(archive)
+        self.assertTrue(validation.valid)
+
+        before = self._snapshot(target.path)
+
+        result = self.replace_service.replace_from_archive(target, validation, ReplaceMode.MERGE)
+
+        # 类型冲突必须失败并自动回滚，不得静默删除目录或改写结构。
+        self.assertFalse(result.success)
+        self.assertEqual((target.path / "manifest.json").read_text(encoding="utf-8"), target_manifest_before)
+        after = self._snapshot(target.path)
+        self.assertEqual(before, after)
+
     def test_manual_rollback_latest(self) -> None:
         target = self._create_target_pack()
         archive = self._create_archive(self.root / "replace_once")

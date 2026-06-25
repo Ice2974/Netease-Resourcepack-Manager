@@ -36,14 +36,11 @@ pip-wheel-metadata/
 *.tmp
 *.temp
 
-# OS files
-.DS_Store
-Thumbs.db
-Desktop.ini
-
 # IDE / editor
 .vscode/
 .idea/
+.codex/
+.claude/
 *.suo
 *.user
 *.userosscache
@@ -54,6 +51,3 @@ Desktop.ini
 backups/
 logs/
 temp/
-
-# Optional local notes
-开发文档.md

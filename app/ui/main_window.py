@@ -39,6 +39,7 @@ from app.services.scan_service import ScanService
 from app.services.delete_service import DeleteService
 from app.ui.drop_zone import DropZone
 from app.utils.shell import open_path, reveal_file
+from app.utils.theme import get_system_app_mode
 
 
 class PackTableDelegate(QStyledItemDelegate):
@@ -46,28 +47,85 @@ class PackTableDelegate(QStyledItemDelegate):
         super().__init__()
         self.open_folder_callback = open_folder_callback
         self.delete_pack_callback = delete_pack_callback
+        # delegate 直接用 QPainter 绘制卡片，QSS 无法覆盖；按系统应用模式
+        # 选配配色字典，深浅主题各自一套，避免深色下出现白底卡片与浅色外框。
+        self._colors = self._palette_for(get_system_app_mode())
         self.folder_icon = self._create_folder_icon()
         self.trash_icon = self._create_trash_icon()
+
+    @staticmethod
+    def _palette_for(mode: str) -> dict:
+        if mode == "dark":
+            return {
+                "card_bg": "#2B2B2B",
+                "card_border": "#3A3A3A",
+                "hover_bg": "#3A3A3A",
+                "hover_border": "#4B5563",
+                "sel_bg": "#1E2A44",
+                "sel_border": "#3B82F6",
+                "text": "#F3F4F6",
+                "folder_icon": "#9CA3AF",
+                "folder_sel_bg": "#1E3A5F",
+                "folder_hover_bg": "#3A3A3A",
+                "trash_icon": "#F87171",
+                "trash_sel_bg": "#4A2424",
+                "trash_hover_bg": "#3A1F1F",
+                "placeholder_bg": "#3A3A3A",
+                "placeholder_text": "#9CA3AF",
+            }
+        return {
+            "card_bg": "#FFFFFF",
+            "card_border": "#E5E7EB",
+            "hover_bg": "#F9FAFB",
+            "hover_border": "#E5E7EB",
+            "sel_bg": "#EFF6FF",
+            "sel_border": "#BFDBFE",
+            "text": "#111827",
+            "folder_icon": "#4B5563",
+            "folder_sel_bg": "#DBEAFE",
+            "folder_hover_bg": "#F3F4F6",
+            "trash_icon": "#DC2626",
+            "trash_sel_bg": "#FEE2E2",
+            "trash_hover_bg": "#FEF2F2",
+            "placeholder_bg": "#E5E7EB",
+            "placeholder_text": "#6B7280",
+        }
 
     def paint(self, painter, option, index) -> None:
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
+
+        # 清除系统 focus 框：QStyledItemDelegate 基类在选中态会在 item 外围绘制
+        # 一层 focus 边框（浅色/白色），覆盖到深色卡片外带，造成刺眼白框。
+        # 自定义绘制已自行处理选中视觉，无需系统 focus 框。
+        option.state &= ~QStyle.State_HasFocus
+
+        # 先用卡片背景填满整个 option.rect，消除圆角卡片外带 4px 透出的
+        # 系统 item 选中底色（深色下表现为白边）。
+        outer_bg = (
+            self._colors["sel_bg"]
+            if option.state & QStyle.State_Selected
+            else self._colors["card_bg"]
+        )
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(outer_bg))
+        painter.drawRect(option.rect)
 
         rect = option.rect.adjusted(4, 4, -4, -4)
         radius = 8
 
         # Draw Background
         if option.state & QStyle.State_Selected:
-            painter.setPen(QColor("#BFDBFE"))
-            painter.setBrush(QColor("#EFF6FF"))
+            painter.setPen(QColor(self._colors["sel_border"]))
+            painter.setBrush(QColor(self._colors["sel_bg"]))
             painter.drawRoundedRect(rect, radius, radius)
         elif option.state & QStyle.State_MouseOver:
-            painter.setPen(QColor("#E5E7EB"))
-            painter.setBrush(QColor("#F9FAFB"))
+            painter.setPen(QColor(self._colors["hover_border"]))
+            painter.setBrush(QColor(self._colors["hover_bg"]))
             painter.drawRoundedRect(rect, radius, radius)
         else:
-            painter.setPen(QColor("#E5E7EB"))
-            painter.setBrush(QColor("#FFFFFF"))
+            painter.setPen(QColor(self._colors["card_border"]))
+            painter.setBrush(QColor(self._colors["card_bg"]))
             painter.drawRoundedRect(rect, radius, radius)
 
         # Draw Icon
@@ -89,7 +147,7 @@ class PackTableDelegate(QStyledItemDelegate):
         font.setPixelSize(15)
         font.setBold(True)
         painter.setFont(font)
-        painter.setPen(QColor("#111827"))
+        painter.setPen(QColor(self._colors["text"]))
 
         metrics = painter.fontMetrics()
         elided_text = metrics.elidedText(text, Qt.ElideRight, text_rect.width())
@@ -97,11 +155,11 @@ class PackTableDelegate(QStyledItemDelegate):
 
         if option.state & QStyle.State_Selected:
             painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor("#DBEAFE"))
+            painter.setBrush(QColor(self._colors["folder_sel_bg"]))
             painter.drawRoundedRect(folder_rect.adjusted(-4, -4, 4, 4), 6, 6)
         elif option.state & QStyle.State_MouseOver:
             painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor("#F3F4F6"))
+            painter.setBrush(QColor(self._colors["folder_hover_bg"]))
             painter.drawRoundedRect(folder_rect.adjusted(-4, -4, 4, 4), 6, 6)
 
         # Draw Folder Icon
@@ -111,11 +169,11 @@ class PackTableDelegate(QStyledItemDelegate):
         trash_rect = self._trash_icon_rect(option.rect)
         if option.state & QStyle.State_Selected:
             painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor("#FEE2E2"))
+            painter.setBrush(QColor(self._colors["trash_sel_bg"]))
             painter.drawRoundedRect(trash_rect.adjusted(-4, -4, 4, 4), 6, 6)
         elif option.state & QStyle.State_MouseOver:
             painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor("#FEF2F2"))
+            painter.setBrush(QColor(self._colors["trash_hover_bg"]))
             painter.drawRoundedRect(trash_rect.adjusted(-4, -4, 4, 4), 6, 6)
 
         # Draw Trash Icon
@@ -156,7 +214,7 @@ class PackTableDelegate(QStyledItemDelegate):
         pix.fill(Qt.transparent)
         painter = QPainter(pix)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        pen = QColor("#4B5563")
+        pen = QColor(self._colors["folder_icon"])
         painter.setPen(pen)
         painter.drawRect(2, 6, 16, 11)
         painter.drawLine(4, 6, 7, 3)
@@ -170,7 +228,7 @@ class PackTableDelegate(QStyledItemDelegate):
         pix.fill(Qt.transparent)
         painter = QPainter(pix)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        pen = QColor("#DC2626")  # Red color
+        pen = QColor(self._colors["trash_icon"])  # Red color
         painter.setPen(pen)
 
         # Trash bin body
@@ -216,6 +274,8 @@ class MainWindow(QMainWindow):
         self.selected_pack: ResourcePack | None = None
         self.selected_archive: Path | None = None
         self.validation_result: ValidationResult | None = None
+        # 占位图标直绘配色，与 delegate 共用同一套主题配色。
+        self._colors = PackTableDelegate._palette_for(get_system_app_mode())
 
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
@@ -333,7 +393,7 @@ class MainWindow(QMainWindow):
         target_title = QLabel("目标资源包")
         target_title.setObjectName("SubtitleLabel")
         self.target_label = QLabel("未选择")
-        self.target_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #111827;")
+        self.target_label.setObjectName("TargetLabel")
         target_layout.addWidget(target_title)
         target_layout.addWidget(self.target_label)
 
@@ -355,7 +415,7 @@ class MainWindow(QMainWindow):
         self.choose_file_button = QPushButton("从电脑选择文件")
         self.choose_file_button.setFocusPolicy(Qt.NoFocus)
         self.file_label = QLabel("未选择")
-        self.file_label.setStyleSheet("color: #4B5563; font-size: 14px;")
+        self.file_label.setObjectName("FileLabel")
 
         button_row.addWidget(self.choose_file_button)
         button_row.addSpacing(16)
@@ -364,7 +424,8 @@ class MainWindow(QMainWindow):
 
         self.validate_label = QLabel("请先选择 .zip 或 .mcpack 文件")
         self.validate_label.setWordWrap(True)
-        self.validate_label.setStyleSheet("color: #6B7280; font-size: 13px; margin-top: 8px;")
+        self.validate_label.setObjectName("ValidateLabel")
+        self._set_label_state(self.validate_label, "hint")
 
         import_layout.addWidget(file_title)
         import_layout.addWidget(self.drop_zone)
@@ -398,7 +459,7 @@ class MainWindow(QMainWindow):
             radio = QRadioButton(title)
             radio.setFocusPolicy(Qt.NoFocus)
             desc_label = QLabel(desc)
-            desc_label.setStyleSheet("color: #6B7280; font-size: 12px;")
+            desc_label.setObjectName("ModeDescLabel")
             desc_label.setWordWrap(True)
             row.addWidget(radio)
             row.addWidget(desc_label, 1)
@@ -408,7 +469,7 @@ class MainWindow(QMainWindow):
         self.mode_group.button(0).setChecked(True)
 
         mode_hint = QLabel("所有模式都会保留目标 manifest.json，并在替换前自动备份。")
-        mode_hint.setStyleSheet("color: #6B7280; font-size: 12px; margin-top: 4px;")
+        mode_hint.setObjectName("ModeHintLabel")
         mode_hint.setWordWrap(True)
         mode_layout.addWidget(mode_hint)
 
@@ -425,6 +486,7 @@ class MainWindow(QMainWindow):
 
         self.result_label = QLabel("")
         self.result_label.setWordWrap(True)
+        self.result_label.setObjectName("ResultLabel")
 
         result_action_layout = QHBoxLayout()
         self.open_target_button = QPushButton("打开目标目录")
@@ -466,6 +528,17 @@ class MainWindow(QMainWindow):
         self.rollback_button.setVisible(show_success_actions)
         self.view_logs_button.setVisible(show_view_logs)
 
+    @staticmethod
+    def _set_label_state(label: QLabel, state: str) -> None:
+        """通过动态属性切换 QLabel 的状态色（hint/success/error），配色由 QSS 接管。
+
+        深浅主题各自的色值定义在 styles.qss / styles_dark.qss 的 [state="..."]
+        选择器中；setProperty 后需 unpolish/polish 才能让选择器即时生效。
+        """
+        label.setProperty("state", state)
+        label.style().unpolish(label)
+        label.style().polish(label)
+
     def _make_placeholder_icon(self) -> QIcon:
         pix = QPixmap(48, 48)
         pix.fill(Qt.transparent)
@@ -474,11 +547,11 @@ class MainWindow(QMainWindow):
 
         # Draw rounded rect background
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor("#E5E7EB"))
+        painter.setBrush(QColor(self._colors["placeholder_bg"]))
         painter.drawRoundedRect(pix.rect(), 8, 8)
 
         # Draw Text
-        painter.setPen(QColor("#6B7280"))
+        painter.setPen(QColor(self._colors["placeholder_text"]))
         font = painter.font()
         font.setPixelSize(18)
         font.setBold(True)
@@ -724,7 +797,7 @@ class MainWindow(QMainWindow):
         self.target_label.setText(f"{self.selected_pack.display_name} ({self.selected_pack.folder_name})")
         self.file_label.setText("未选择")
         self.validate_label.setText("请先选择 .zip 或 .mcpack 文件")
-        self.validate_label.setStyleSheet("color: #6B7280; font-size: 13px; margin-top: 8px;")
+        self._set_label_state(self.validate_label, "hint")
 
         # 每次进入导入页重置替换模式为“全量替换”，不持久化用户上次选择。
         default_mode_button = self.mode_group.button(0)
@@ -762,10 +835,10 @@ class MainWindow(QMainWindow):
 
         self.validate_label.setText(result.message)
         if result.valid:
-            self.validate_label.setStyleSheet("color: #059669; font-size: 13px; font-weight: bold; margin-top: 8px;")
+            self._set_label_state(self.validate_label, "success")
             self.replace_button.setEnabled(True)
         else:
-            self.validate_label.setStyleSheet("color: #DC2626; font-size: 13px; font-weight: bold; margin-top: 8px;")
+            self._set_label_state(self.validate_label, "error")
             self.replace_button.setEnabled(False)
 
     def _do_replace(self) -> None:
@@ -778,12 +851,12 @@ class MainWindow(QMainWindow):
         self.result_label.setText(result.message)
 
         if result.success:
-            self.result_label.setStyleSheet("color: #059669; font-size: 14px; font-weight: bold; margin-bottom: 8px;")
+            self._set_label_state(self.result_label, "success")
             self._toggle_result_buttons(True, False)
             QMessageBox.information(self, "替换成功", result.message)
             self.refresh_packs()
         else:
-            self.result_label.setStyleSheet("color: #DC2626; font-size: 14px; font-weight: bold; margin-bottom: 8px;")
+            self._set_label_state(self.result_label, "error")
             self._toggle_result_buttons(False, True)
             QMessageBox.critical(self, "替换失败", result.message)
 
@@ -794,11 +867,11 @@ class MainWindow(QMainWindow):
         result = self.replace_service.rollback_latest(self.selected_pack)
         self.result_label.setText(result.message)
         if result.success:
-            self.result_label.setStyleSheet("color: #059669; font-size: 14px; font-weight: bold; margin-bottom: 8px;")
+            self._set_label_state(self.result_label, "success")
             QMessageBox.information(self, "回滚完成", result.message)
             self.refresh_packs()
         else:
-            self.result_label.setStyleSheet("color: #DC2626; font-size: 14px; font-weight: bold; margin-bottom: 8px;")
+            self._set_label_state(self.result_label, "error")
             self._toggle_result_buttons(False, True)
             QMessageBox.critical(self, "回滚失败", result.message)
 

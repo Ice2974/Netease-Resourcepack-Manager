@@ -13,6 +13,7 @@ a = Analysis(
     binaries=[],
     datas=[
         (str(project_root / 'app' / 'ui' / 'styles.qss'), 'app/ui'),
+        (str(project_root / 'app' / 'ui' / 'styles_dark.qss'), 'app/ui'),
         (str(project_root / 'app' / 'ui' / 'icon.ico'), 'app/ui'),
     ],
     hiddenimports=[],

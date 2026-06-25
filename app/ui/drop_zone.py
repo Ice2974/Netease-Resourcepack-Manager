@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 
@@ -14,31 +14,29 @@ class DropZone(QFrame):
         super().__init__()
         self.setAcceptDrops(True)
         self.setFrameShape(QFrame.StyledPanel)
-        self.setStyleSheet("""
-            QFrame {
-                background-color: #F9FAFB;
-                border: 2px dashed #D1D5DB;
-                border-radius: 12px;
-            }
-            QFrame:hover {
-                background-color: #F3F4F6;
-                border-color: #9CA3AF;
-            }
-        """)
+        # 配色与拖拽高亮态由全局 QSS（styles.qss / styles_dark.qss）按对象名与
+        # dragActive 属性接管，深浅主题各自定义，避免内联硬编码浅色值。
+        self.setObjectName("DropZone")
+        self.setProperty("dragActive", False)
 
         layout = QVBoxLayout(self)
         self.label = QLabel("拖拽 .zip 或 .mcpack 到此处")
         self.label.setAlignment(Qt.AlignCenter)
-        self.label.setStyleSheet("color: #6B7280; font-size: 16px; font-weight: 500; border: none; background: transparent;")
-        
+        self.label.setObjectName("DropZoneLabel")
+
         self.sub_label = QLabel("或点击下方按钮选择文件")
         self.sub_label.setAlignment(Qt.AlignCenter)
-        self.sub_label.setStyleSheet("color: #9CA3AF; font-size: 13px; border: none; background: transparent;")
+        self.sub_label.setObjectName("DropZoneSubLabel")
 
         layout.addStretch(1)
         layout.addWidget(self.label)
         layout.addWidget(self.sub_label)
         layout.addStretch(1)
+
+    def _set_drag_active(self, active: bool) -> None:
+        self.setProperty("dragActive", active)
+        self.style().unpolish(self)
+        self.style().polish(self)
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:  # noqa: N802
         mime = event.mimeData()
@@ -52,43 +50,17 @@ class DropZone(QFrame):
         local = urls[0].toLocalFile()
         suffix = Path(local).suffix.lower()
         if suffix in {".zip", ".mcpack"}:
-            self.setStyleSheet("""
-                QFrame {
-                    background-color: #EFF6FF;
-                    border: 2px dashed #3B82F6;
-                    border-radius: 12px;
-                }
-            """)
+            self._set_drag_active(True)
             event.acceptProposedAction()
             return
         event.ignore()
 
     def dragLeaveEvent(self, event):  # noqa: N802
-        self.setStyleSheet("""
-            QFrame {
-                background-color: #F9FAFB;
-                border: 2px dashed #D1D5DB;
-                border-radius: 12px;
-            }
-            QFrame:hover {
-                background-color: #F3F4F6;
-                border-color: #9CA3AF;
-            }
-        """)
+        self._set_drag_active(False)
         super().dragLeaveEvent(event)
 
     def dropEvent(self, event: QDropEvent) -> None:  # noqa: N802
-        self.setStyleSheet("""
-            QFrame {
-                background-color: #F9FAFB;
-                border: 2px dashed #D1D5DB;
-                border-radius: 12px;
-            }
-            QFrame:hover {
-                background-color: #F3F4F6;
-                border-color: #9CA3AF;
-            }
-        """)
+        self._set_drag_active(False)
         urls = event.mimeData().urls()
         if len(urls) != 1:
             return

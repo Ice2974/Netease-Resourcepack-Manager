@@ -12,7 +12,9 @@ from app.services.replace_service import ReplaceService
 from app.services.scan_service import ScanService
 from app.services.delete_service import DeleteService
 from app.ui.main_window import MainWindow
+from app.utils.dark_titlebar import DarkTitlebarFilter, apply_dark_titlebar
 from app.utils.runtime_paths import get_resource_path
+from app.utils.theme import get_qss_text, get_system_app_mode
 
 
 def main() -> int:
@@ -39,9 +41,15 @@ def main() -> int:
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
 
-    qss_path = get_resource_path("app", "ui", "styles.qss")
-    if qss_path.exists():
-        app.setStyleSheet(qss_path.read_text(encoding="utf-8"))
+    qss_text = get_qss_text()
+    if qss_text:
+        app.setStyleSheet(qss_text)
+
+    # 深色模式：安装全局事件过滤器，对主窗口及所有 QMessageBox 等弹窗的
+    # Windows 原生标题栏应用沉浸式深色；浅色模式不安装，保持系统默认。
+    dark_mode = get_system_app_mode() == "dark"
+    if dark_mode:
+        app.installEventFilter(DarkTitlebarFilter(app))
 
     window = MainWindow(
         scan_service=scan_service,
@@ -52,6 +60,8 @@ def main() -> int:
         packcache_dir=packcache_dir,
         logs_dir=dirs["logs"],
     )
+    if dark_mode:
+        apply_dark_titlebar(window, True)
     window.show()
     return app.exec()
 

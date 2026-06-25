@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from app.config import VERSION, ensure_data_dirs, get_packcache_dir
@@ -33,7 +34,11 @@ def main() -> int:
     )
 
     app = QApplication(sys.argv)
-    
+
+    icon_path = get_resource_path("app", "ui", "icon.ico")
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
+
     qss_path = get_resource_path("app", "ui", "styles.qss")
     if qss_path.exists():
         app.setStyleSheet(qss_path.read_text(encoding="utf-8"))

@@ -480,6 +480,11 @@ class MainWindow(QMainWindow):
         return QIcon(pix)
 
     def refresh_packs(self) -> None:
+        # 保存当前垂直滚动位置，刷新后恢复，避免删除/刷新后跳回顶部。
+        # 使用 min(old, maximum()) 防止行数减少后越界。
+        scroll_bar = self.pack_table.verticalScrollBar()
+        old_scroll = scroll_bar.value()
+
         previous = self.selected_pack.folder_name if self.selected_pack else None
         self.packs = self.scan_service.scan()
         self.log_service.info(f"扫描到的资源包数量: {len(self.packs)}")
@@ -500,6 +505,9 @@ class MainWindow(QMainWindow):
 
         self._restore_selection(previous)
         self._update_watch_paths()
+
+        # 在事件循环下一拍恢复滚动位置，确保表格行高/视口布局已更新、maximum() 有效。
+        QTimer.singleShot(0, lambda: scroll_bar.setValue(min(old_scroll, scroll_bar.maximum())))
 
     def _restore_selection(self, previous_folder: str | None) -> None:
         if not self.packs:
